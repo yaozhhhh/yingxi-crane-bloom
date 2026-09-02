@@ -12,6 +12,7 @@ const sitesWorkerEntry = () => ({
   },
 });
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  base: mode === 'github-pages' ? '/yingxi-crane-bloom/' : '/',
   plugins: [react(), sites(), sitesWorkerEntry()],
-});
+}));

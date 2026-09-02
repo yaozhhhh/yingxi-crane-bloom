@@ -298,7 +298,7 @@ export async function createPixiStage(host, config, callbacks = {}) {
   colorFilter.brightness(1.08, true);
   scene.filters = [noiseFilter, colorFilter];
 
-  const response = await fetch('/animal-he-002.woop');
+  const response = await fetch(`${import.meta.env.BASE_URL}animal-he-002.woop`);
   if (!response.ok) throw new Error(`无法载入仙鹤素材（${response.status}）`);
   const zip = await JSZip.loadAsync(await response.arrayBuffer());
   const manifest = JSON.parse(await zip.file('woop.json').async('string'));
