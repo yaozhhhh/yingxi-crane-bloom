@@ -78,6 +78,32 @@ void main(void) {
   finalColor = vec4(clamp(warmLight, 0.0, 1.0) * bloomMask, bloomMask);
 }`;
 
+const GRADIENT_BLUR_FRAGMENT = `
+precision highp float;
+in vec2 vTextureCoord;
+out vec4 finalColor;
+uniform sampler2D uTexture;
+uniform vec4 uInputSize;
+uniform vec4 uOutputFrame;
+uniform vec2 uGradientStart;
+uniform vec2 uGradientEnd;
+uniform float uPassOffset;
+
+void main(void) {
+  vec2 direction = uGradientEnd - uGradientStart;
+  float directionLength = max(dot(direction, direction), 1.0);
+  vec2 screenPosition = uOutputFrame.xy + vTextureCoord * uInputSize.xy;
+  float gradientAmount = clamp(dot(screenPosition - uGradientStart, direction) / directionLength, 0.0, 1.0);
+  gradientAmount = smoothstep(0.0, 1.0, gradientAmount);
+  float radius = gradientAmount * gradientAmount * uPassOffset;
+  vec2 offset = uInputSize.zw * radius;
+  vec4 sum = texture(uTexture, vTextureCoord + vec2(-offset.x, -offset.y));
+  sum += texture(uTexture, vTextureCoord + vec2(offset.x, -offset.y));
+  sum += texture(uTexture, vTextureCoord + vec2(-offset.x, offset.y));
+  sum += texture(uTexture, vTextureCoord + vec2(offset.x, offset.y));
+  finalColor = sum * 0.25;
+}`;
+
 const M = {
   multiply(a, b) {
     return [
@@ -190,12 +216,12 @@ function buildRig(manifest, textures) {
   return { manifest, parts, rootId, rootCenter, bounds, parentJointByChild, childJointsByParent, neckIds };
 }
 
-function computeWorld(rig, time, motion) {
+function computeWorld(rig, time, motion, interaction) {
   const world = new Map();
   const rootPart = rig.parts.get(rig.rootId);
   const bob = motion ? Math.sin(time * 0.00125) * 13 : 0;
-  const rootTurn = motion ? Math.sin(time * 0.00072) * 0.018 : 0;
-  let rootPose = M.multiply(M.translate(0, bob), rootPart.restMatrix);
+  const rootTurn = (motion ? Math.sin(time * 0.00072) * 0.018 : 0) + interaction.rootTurn;
+  let rootPose = M.multiply(M.translate(interaction.x, bob + interaction.y), rootPart.restMatrix);
   rootPose = M.multiply(rootPose, M.rotateAt(rootTurn, { x: rootPart.width / 2, y: rootPart.height / 2 }));
   world.set(rig.rootId, rootPose);
 
@@ -209,6 +235,9 @@ function computeWorld(rig, time, motion) {
       if (motion && rig.neckIds.includes(child.id)) {
         const index = rig.neckIds.indexOf(child.id);
         rotation = Math.sin(time * 0.00105 + index * 0.36) * (0.014 + index * 0.0023);
+      }
+      if (rig.neckIds.includes(child.id)) {
+        rotation += interaction.neckAngles[rig.neckIds.indexOf(child.id)] ?? 0;
       }
       if (motion && child.id === 'part_017') rotation += Math.sin(time * 0.0017) * 0.026;
       if (rotation) childPose = M.multiply(childPose, M.rotateAt(rotation, anchorOf(child, joint.child.anchorId)));
@@ -247,21 +276,22 @@ export async function createPixiStage(host, config, callbacks = {}) {
   const shadowLayer = new Container();
   const bloomLayer = new Container();
   const puppetLayer = new Container();
-  const selectionFrame = new Graphics();
+  const gradientGuide = new Graphics();
   const vignette = new Sprite(makeVignetteTexture());
-  scene.addChild(curtain, light, shadowLayer, bloomLayer, puppetLayer, selectionFrame, vignette);
+  scene.addChild(curtain, light, shadowLayer, bloomLayer, puppetLayer, gradientGuide, vignette);
   app.stage.addChild(scene);
 
+  let ignoreNextBlankTap = false;
   curtain.eventMode = 'static';
   curtain.cursor = 'default';
   curtain.on('pointertap', () => {
-    config.selectedPartId = null;
-    callbacks.onPartClear?.();
+    if (!config.gradientEditing || ignoreNextBlankTap) return;
+    callbacks.onGradientEditEnd?.();
   });
   light.eventMode = 'none';
   shadowLayer.eventMode = 'none';
   bloomLayer.eventMode = 'none';
-  selectionFrame.eventMode = 'none';
+  gradientGuide.eventMode = 'none';
   vignette.eventMode = 'none';
 
   light.blendMode = 'screen';
@@ -288,13 +318,29 @@ export async function createPixiStage(host, config, callbacks = {}) {
     uTime: { value: 0, type: 'f32' },
     uTranslucency: { value: config.translucency, type: 'f32' },
   });
+  const leatherProgram = GlProgram.from({ vertex: FILTER_VERTEX, fragment: LEATHER_FRAGMENT, name: 'woop-leather-light' });
   const leatherFilter = new Filter({
-    glProgram: GlProgram.from({ vertex: FILTER_VERTEX, fragment: LEATHER_FRAGMENT, name: 'woop-leather-light' }),
+    glProgram: leatherProgram,
     resources: { leatherUniforms },
     padding: 12,
   });
-  const focusBlur = new BlurFilter({ strength: 0.45, quality: 2, resolution: 1 });
-  puppetLayer.filters = [leatherFilter, focusBlur];
+  const gradientBlurProgram = GlProgram.from({ vertex: FILTER_VERTEX, fragment: GRADIENT_BLUR_FRAGMENT, name: 'woop-gradient-blur' });
+  const makeGradientBlurPass = (offset) => {
+    const uniforms = new UniformGroup({
+      uGradientStart: { value: new Float32Array([0, 0]), type: 'vec2<f32>' },
+      uGradientEnd: { value: new Float32Array([1, 0]), type: 'vec2<f32>' },
+      uPassOffset: { value: offset, type: 'f32' },
+    });
+    const filter = new Filter({
+      glProgram: gradientBlurProgram,
+      resources: { gradientBlurUniforms: uniforms },
+      padding: 64,
+    });
+    filter.enabled = false;
+    return { uniforms, filter };
+  };
+  const gradientBlurPasses = [0.5, 1.5, 2.5, 2.5, 3.5].map(makeGradientBlurPass);
+  puppetLayer.filters = [leatherFilter, ...gradientBlurPasses.map((pass) => pass.filter)];
 
   const noiseFilter = new NoiseFilter({ noise: config.grain, seed: 0.37 });
   const colorFilter = new ColorMatrixFilter();
@@ -327,10 +373,19 @@ export async function createPixiStage(host, config, callbacks = {}) {
 
   const rig = buildRig(manifest, textures);
   const ordered = [...rig.parts.values()].sort((a, b) => (a.rest?.zIndex ?? 0) - (b.rest?.zIndex ?? 0));
+  const bodyMotion = {
+    active: false,
+    hover: false,
+    pointerId: null,
+    last: { x: 0, y: 0 },
+    position: { x: 0, y: 0 },
+    target: { x: 0, y: 0 },
+    velocity: { x: 0, y: 0 },
+    neckSprings: rig.neckIds.map(() => ({ angle: 0, velocity: 0 })),
+  };
   const bodySprites = new Map();
   const shadowSprites = new Map();
   const bloomSprites = new Map();
-  const partBlurFilters = new Map();
   ordered.forEach((part) => {
     const shadow = new Sprite(part.texture);
     shadow.tint = 0x6b2f16;
@@ -341,28 +396,109 @@ export async function createPixiStage(host, config, callbacks = {}) {
     bloomLayer.addChild(bloom);
     bloomSprites.set(part.id, bloom);
     const sprite = new Sprite(part.texture);
-    const partBlur = new BlurFilter({ strength: 0, quality: 2, resolution: 0.8 });
-    partBlur.enabled = false;
-    sprite.filters = [partBlur];
     sprite.eventMode = 'static';
-    sprite.cursor = 'pointer';
+    if (part.id === 'part_016') {
+      sprite.on('pointerover', () => { bodyMotion.hover = true; });
+      sprite.on('pointerout', () => { bodyMotion.hover = false; });
+      sprite.on('pointerdown', (event) => {
+        if (config.gradientEditing) return;
+        event.stopPropagation();
+        bodyMotion.active = true;
+        bodyMotion.pointerId = event.pointerId;
+        bodyMotion.last = { x: event.global.x, y: event.global.y };
+        app.canvas.setPointerCapture?.(event.pointerId);
+      });
+    }
     sprite.on('pointertap', (event) => {
       event.stopPropagation();
-      config.selectedPartId = part.id;
-      callbacks.onPartSelect?.(part.id);
     });
     puppetLayer.addChild(sprite);
     bodySprites.set(part.id, sprite);
-    partBlurFilters.set(part.id, partBlur);
   });
 
+  const gradientField = {
+    start: { x: app.screen.width * 0.25, y: app.screen.height * 0.5 },
+    end: { x: app.screen.width * 0.75, y: app.screen.height * 0.5 },
+    width: app.screen.width,
+    height: app.screen.height,
+    ready: false,
+  };
+  const updateGradientBlur = () => {
+    gradientBlurPasses.forEach(({ uniforms, filter }) => {
+      uniforms.uniforms.uGradientStart[0] = gradientField.start.x;
+      uniforms.uniforms.uGradientStart[1] = gradientField.start.y;
+      uniforms.uniforms.uGradientEnd[0] = gradientField.end.x;
+      uniforms.uniforms.uGradientEnd[1] = gradientField.end.y;
+      filter.enabled = gradientField.ready;
+    });
+  };
+
   const pointer = { x: app.screen.width * 0.44, y: app.screen.height * 0.39, targetX: app.screen.width * 0.44, targetY: app.screen.height * 0.39 };
-  const updatePointer = (event) => {
+  const pointFromEvent = (event) => {
     const rect = app.canvas.getBoundingClientRect();
-    pointer.targetX = event.clientX - rect.left;
-    pointer.targetY = event.clientY - rect.top;
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  };
+  const updatePointer = (event) => {
+    if (config.gradientEditing || bodyMotion.active) return;
+    const point = pointFromEvent(event);
+    pointer.targetX = point.x;
+    pointer.targetY = point.y;
+  };
+  const moveBodyDrag = (event) => {
+    if (!bodyMotion.active || event.pointerId !== bodyMotion.pointerId) return;
+    event.preventDefault();
+    const point = pointFromEvent(event);
+    const dx = point.x - bodyMotion.last.x;
+    const dy = point.y - bodyMotion.last.y;
+    const limitX = app.screen.width * 0.24;
+    const limitY = app.screen.height * 0.2;
+    bodyMotion.target.x = Math.max(-limitX, Math.min(limitX, bodyMotion.target.x + dx));
+    bodyMotion.target.y = Math.max(-limitY, Math.min(limitY, bodyMotion.target.y + dy));
+    bodyMotion.last = point;
+  };
+  const endBodyDrag = (event) => {
+    if (!bodyMotion.active || event.pointerId !== bodyMotion.pointerId) return;
+    bodyMotion.active = false;
+    bodyMotion.pointerId = null;
+    app.canvas.releasePointerCapture?.(event.pointerId);
+  };
+  const gradientDrag = { active: false, pointerId: null, origin: { x: 0, y: 0 }, moved: false };
+  const startGradientDrag = (event) => {
+    if (!config.gradientEditing) return;
+    event.preventDefault();
+    const point = pointFromEvent(event);
+    gradientDrag.active = true;
+    gradientDrag.pointerId = event.pointerId;
+    gradientDrag.origin = point;
+    gradientDrag.moved = false;
+    app.canvas.setPointerCapture?.(event.pointerId);
+  };
+  const moveGradientDrag = (event) => {
+    if (!gradientDrag.active || event.pointerId !== gradientDrag.pointerId) return;
+    const point = pointFromEvent(event);
+    const distance = Math.hypot(point.x - gradientDrag.origin.x, point.y - gradientDrag.origin.y);
+    if (distance < 5) return;
+    gradientDrag.moved = true;
+    ignoreNextBlankTap = true;
+    gradientField.start = { ...gradientDrag.origin };
+    gradientField.end = point;
+    gradientField.ready = true;
+    updateGradientBlur();
+  };
+  const endGradientDrag = (event) => {
+    if (!gradientDrag.active || event.pointerId !== gradientDrag.pointerId) return;
+    gradientDrag.active = false;
+    app.canvas.releasePointerCapture?.(event.pointerId);
+    window.setTimeout(() => { ignoreNextBlankTap = false; }, 0);
   };
   app.canvas.addEventListener('pointermove', updatePointer);
+  app.canvas.addEventListener('pointermove', moveBodyDrag);
+  app.canvas.addEventListener('pointerup', endBodyDrag);
+  app.canvas.addEventListener('pointercancel', endBodyDrag);
+  app.canvas.addEventListener('pointerdown', startGradientDrag);
+  app.canvas.addEventListener('pointermove', moveGradientDrag);
+  app.canvas.addEventListener('pointerup', endGradientDrag);
+  app.canvas.addEventListener('pointercancel', endGradientDrag);
 
   let view = { scale: 1, ox: 0, oy: 0 };
   const layout = () => {
@@ -371,6 +507,15 @@ export async function createPixiStage(host, config, callbacks = {}) {
     curtain.height = height;
     vignette.width = width;
     vignette.height = height;
+    if (gradientField.width > 0 && gradientField.height > 0) {
+      const sx = width / gradientField.width;
+      const sy = height / gradientField.height;
+      gradientField.start = { x: gradientField.start.x * sx, y: gradientField.start.y * sy };
+      gradientField.end = { x: gradientField.end.x * sx, y: gradientField.end.y * sy };
+    }
+    gradientField.width = width;
+    gradientField.height = height;
+    updateGradientBlur();
     const scale = Math.min(width / rig.bounds.width, height / rig.bounds.height) * 0.78;
     view = {
       scale,
@@ -385,8 +530,35 @@ export async function createPixiStage(host, config, callbacks = {}) {
 
   let frameCount = 0;
   let fpsStamp = performance.now();
+  let lastTick = fpsStamp;
   const tick = () => {
     const now = performance.now();
+    const delta = Math.min(2.2, Math.max(0.25, (now - lastTick) / 16.667));
+    lastTick = now;
+    if (config.gradientEditing && bodyMotion.active) bodyMotion.active = false;
+    app.canvas.style.cursor = config.gradientEditing
+      ? (gradientDrag.active ? 'grabbing' : 'crosshair')
+      : bodyMotion.active ? 'grabbing' : bodyMotion.hover ? 'grab' : 'crosshair';
+
+    const bodyStiffness = bodyMotion.active ? 0.3 : 0.14;
+    const bodyDamping = Math.pow(bodyMotion.active ? 0.62 : 0.76, delta);
+    bodyMotion.velocity.x = (bodyMotion.velocity.x + (bodyMotion.target.x - bodyMotion.position.x) * bodyStiffness * delta) * bodyDamping;
+    bodyMotion.velocity.y = (bodyMotion.velocity.y + (bodyMotion.target.y - bodyMotion.position.y) * bodyStiffness * delta) * bodyDamping;
+    bodyMotion.position.x += bodyMotion.velocity.x * delta;
+    bodyMotion.position.y += bodyMotion.velocity.y * delta;
+
+    const neckDrive = Math.max(-0.22, Math.min(0.22, -bodyMotion.velocity.x * 0.02 + bodyMotion.velocity.y * 0.006));
+    let propagatedAngle = neckDrive;
+    bodyMotion.neckSprings.forEach((spring, index) => {
+      const ratio = index / Math.max(bodyMotion.neckSprings.length - 1, 1);
+      const stiffness = 0.135 - ratio * 0.045;
+      const damping = Math.pow(0.84 + ratio * 0.035, delta);
+      spring.velocity = (spring.velocity + (propagatedAngle - spring.angle) * stiffness * delta) * damping;
+      spring.angle += spring.velocity * delta;
+      spring.angle = Math.max(-0.28, Math.min(0.28, spring.angle));
+      propagatedAngle = spring.angle * 1.045;
+    });
+
     pointer.x += (pointer.targetX - pointer.x) * 0.075;
     pointer.y += (pointer.targetY - pointer.y) * 0.075;
     light.clear().circle(pointer.x, pointer.y, Math.max(app.screen.width, app.screen.height) * 0.22)
@@ -406,34 +578,31 @@ export async function createPixiStage(host, config, callbacks = {}) {
     const dy = (app.screen.height * 0.5 - pointer.y) / Math.max(app.screen.height, 1);
     shadowLayer.position.set(dx * config.shadowDistance, dy * config.shadowDistance + 7);
 
-    const world = computeWorld(rig, now, config.motion);
+    const world = computeWorld(rig, now, config.motion, {
+      x: bodyMotion.position.x / Math.max(view.scale, 0.001),
+      y: bodyMotion.position.y / Math.max(view.scale, 0.001),
+      rootTurn: Math.max(-0.055, Math.min(0.055, bodyMotion.velocity.x * 0.0015)),
+      neckAngles: bodyMotion.neckSprings.map((spring) => spring.angle),
+    });
     ordered.forEach((part) => {
       const matrix = matrixForView(world.get(part.id), view);
       bodySprites.get(part.id).setFromMatrix(matrix);
       shadowSprites.get(part.id).setFromMatrix(matrix);
       bloomSprites.get(part.id).setFromMatrix(matrix);
-      const partBlur = partBlurFilters.get(part.id);
-      const partBlurStrength = Number(config.partBlur?.[part.id] ?? 0);
-      partBlur.enabled = partBlurStrength > 0.01;
-      partBlur.strength = partBlurStrength;
     });
 
-    selectionFrame.clear();
-    const selectedSprite = bodySprites.get(config.selectedPartId);
-    if (selectedSprite) {
-      const bounds = selectedSprite.getBounds();
-      const pad = 7;
-      selectionFrame.roundRect(
-        bounds.minX - pad,
-        bounds.minY - pad,
-        bounds.maxX - bounds.minX + pad * 2,
-        bounds.maxY - bounds.minY + pad * 2,
-        6,
-      ).stroke({ color: 0xe5ad56, width: 1.4, alpha: 0.9 });
-      callbacks.onPartAnchor?.({
-        x: Math.min(app.screen.width - 130, Math.max(130, (bounds.minX + bounds.maxX) / 2)),
-        y: Math.min(app.screen.height - 88, Math.max(12, bounds.maxY + 12)),
-      });
+    gradientGuide.clear();
+    if (config.gradientEditing) {
+      const start = gradientField.start;
+      const end = gradientField.end;
+      gradientGuide.moveTo(start.x, start.y).lineTo(end.x, end.y)
+        .stroke({ color: 0xffe0a0, width: 1.25, alpha: 0.82 });
+      gradientGuide.circle(start.x, start.y, 8)
+        .fill({ color: 0x0b0805, alpha: 0.96 })
+        .stroke({ color: 0xffe0a0, width: 1.2, alpha: 0.9 });
+      gradientGuide.circle(end.x, end.y, 8)
+        .fill({ color: 0xfff7e6, alpha: 0.98 })
+        .stroke({ color: 0x6f3d1b, width: 1.2, alpha: 0.9 });
     }
 
     frameCount += 1;
@@ -449,6 +618,13 @@ export async function createPixiStage(host, config, callbacks = {}) {
   return () => {
     app.ticker.remove(tick);
     app.canvas.removeEventListener('pointermove', updatePointer);
+    app.canvas.removeEventListener('pointermove', moveBodyDrag);
+    app.canvas.removeEventListener('pointerup', endBodyDrag);
+    app.canvas.removeEventListener('pointercancel', endBodyDrag);
+    app.canvas.removeEventListener('pointerdown', startGradientDrag);
+    app.canvas.removeEventListener('pointermove', moveGradientDrag);
+    app.canvas.removeEventListener('pointerup', endGradientDrag);
+    app.canvas.removeEventListener('pointercancel', endGradientDrag);
     app.renderer.off('resize', layout);
     urls.forEach((url) => URL.revokeObjectURL(url));
     app.destroy(true, { children: true, texture: true, textureSource: true });

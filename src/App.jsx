@@ -9,7 +9,6 @@ const initialSettings = {
   shadowOpacity: 0.54,
   puppetOpacity: 0.93,
   glow: 0.18,
-  partBlur: {},
   motion: true,
 };
 
@@ -22,22 +21,14 @@ function Range({ label, value, min, max, step = 1, suffix = '', onChange }) {
   );
 }
 
-function partName(partId) {
-  if (partId === 'part_015') return '鹤头';
-  if (partId === 'part_016') return '身体';
-  if (partId === 'part_017') return '双腿';
-  return `颈片 ${partId?.slice(-3)}`;
-}
-
 export default function App() {
   const stageRef = useRef(null);
-  const partEditorRef = useRef(null);
   const settingsRef = useRef({ ...initialSettings });
   const [settings, setSettings] = useState(initialSettings);
-  const [selectedPart, setSelectedPart] = useState(null);
+  const [gradientEditing, setGradientEditing] = useState(false);
   const [runtime, setRuntime] = useState({ loading: true, fps: 0, error: '' });
   Object.assign(settingsRef.current, settings);
-  settingsRef.current.selectedPartId = selectedPart;
+  settingsRef.current.gradientEditing = gradientEditing;
 
   useEffect(() => {
     let disposed = false;
@@ -45,14 +36,7 @@ export default function App() {
     createPixiStage(stageRef.current, settingsRef.current, {
       onReady: (info) => !disposed && setRuntime((state) => ({ ...state, ...info, loading: false })),
       onFps: (fps) => !disposed && setRuntime((state) => ({ ...state, fps })),
-      onPartSelect: (partId) => !disposed && setSelectedPart(partId),
-      onPartClear: () => !disposed && setSelectedPart(null),
-      onPartAnchor: ({ x, y }) => {
-        if (!disposed && partEditorRef.current) {
-          partEditorRef.current.style.left = `${x}px`;
-          partEditorRef.current.style.top = `${y}px`;
-        }
-      },
+      onGradientEditEnd: () => !disposed && setGradientEditing(false),
     }).then((destroy) => {
       if (disposed) destroy(); else cleanup = destroy;
     }).catch((error) => {
@@ -63,27 +47,50 @@ export default function App() {
 
   useEffect(() => {
     const clearOnEscape = (event) => {
-      if (event.key === 'Escape') setSelectedPart(null);
+      if (event.key === 'Escape') setGradientEditing(false);
     };
     window.addEventListener('keydown', clearOnEscape);
     return () => window.removeEventListener('keydown', clearOnEscape);
   }, []);
 
   const update = (key, value) => setSettings((state) => ({ ...state, [key]: value }));
-  const updatePartBlur = (value) => {
-    if (!selectedPart) return;
-    setSettings((state) => ({ ...state, partBlur: { ...state.partBlur, [selectedPart]: value } }));
-  };
-  const selectedBlur = selectedPart ? (settings.partBlur[selectedPart] ?? 0) : 0;
 
   return (
     <main className="app-shell">
       <section className="stage-panel">
         <header className="topbar">
-          <div className="woooo-logo" aria-label="woooo piying">
-            <strong>woooo</strong>
-            <span>PIYING</span>
+          <div className="woooo-logo">
+            <svg viewBox="0 0 794 420" role="img" aria-labelledby="woooo-logo-title">
+              <title id="woooo-logo-title">Woooo · 五天晴工作室</title>
+              <filter id="remove-logo-orange" colorInterpolationFilters="sRGB">
+                <feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 1.25 0 -0.2" />
+              </filter>
+              <image
+                href={`${import.meta.env.BASE_URL}woooo-piying-logo.png`}
+                width="794"
+                height="420"
+                filter="url(#remove-logo-orange)"
+              />
+            </svg>
           </div>
+          <button
+            className={`gradient-tool ${gradientEditing ? 'active' : ''}`}
+            type="button"
+            aria-label={gradientEditing ? '退出渐变模糊编辑' : '编辑渐变模糊'}
+            aria-pressed={gradientEditing}
+            onClick={() => setGradientEditing((active) => !active)}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <defs>
+                <linearGradient id="gradient-tool-fill" x1="0" x2="1">
+                  <stop offset="0" stopColor="#15100c" />
+                  <stop offset="1" stopColor="#fff4dc" />
+                </linearGradient>
+              </defs>
+              <rect x="3.5" y="5" width="17" height="14" rx="2" fill="url(#gradient-tool-fill)" />
+              <path d="M6 15.5h5M6 12.5h8M6 9.5h11" />
+            </svg>
+          </button>
           <div className="fps-meter" aria-label={`当前帧率 ${runtime.fps || 0} FPS`}>
             <output>{runtime.fps || '—'}</output><span>FPS</span>
             <i><b /><b /><b /><b /></i>
@@ -106,36 +113,17 @@ export default function App() {
             </div>
           </section>
 
-          {selectedPart && (
-            <div
-              className="part-blur-popover"
-              ref={partEditorRef}
-              role="dialog"
-              aria-label={`${partName(selectedPart)}模糊程度`}
-              onPointerDown={(event) => event.stopPropagation()}
-            >
-              <div className="part-popover-head">
-                <span><small>SELECTED</small><strong>{partName(selectedPart)}</strong></span>
-                <output>{selectedBlur} px</output>
-              </div>
-              <label>
-                <span>模糊程度</span>
-                <input
-                  aria-label={`${partName(selectedPart)}模糊程度`}
-                  type="range"
-                  min="0"
-                  max="24"
-                  step="0.5"
-                  value={selectedBlur}
-                  onChange={(event) => updatePartBlur(Number(event.target.value))}
-                />
-              </label>
+          {gradientEditing && (
+            <div className="gradient-mode-hint" role="status">
+              <i className="black" /><span>清晰</span>
+              <strong>拖拽设置渐变</strong>
+              <span>模糊</span><i className="white" />
             </div>
           )}
 
           <div className="stage-caption">
-            <span>移动指针控制灯位</span>
-            <strong>点击片儿调整模糊 · 点击空白处关闭</strong>
+            <span>移动指针控制灯位 · 按住身体晃动</span>
+            <strong>弹簧颈链与渐变模糊均支持触控</strong>
           </div>
           <div className="corner-data bottom-right">{runtime.fps || '—'} FPS</div>
           {runtime.error && <div className="error-card">{runtime.error}</div>}

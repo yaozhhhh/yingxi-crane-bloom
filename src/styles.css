@@ -41,28 +41,36 @@ button, input { font: inherit; }
 }
 
 .woooo-logo {
-  display: grid;
-  align-content: center;
-  gap: 6px;
-  min-width: 132px;
-  color: #f0d29a;
-  line-height: 1;
+  height: 52px;
+  display: flex;
+  align-items: center;
   user-select: none;
 }
 
-.woooo-logo strong {
-  font: 700 24px/.72 "Space Mono", monospace;
-  letter-spacing: -.13em;
-  text-transform: lowercase;
-  text-shadow: 0 0 18px #e5a64d4f;
+.woooo-logo svg { display: block; width: auto; height: 100%; overflow: visible; }
+
+.gradient-tool {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  border: 1px solid #68401f;
+  border-radius: 50%;
+  color: #b88343;
+  background: #2a170c;
+  box-shadow: inset 0 0 14px #e3a84a0b;
+  cursor: pointer;
+  transition: color .18s, border-color .18s, background .18s, box-shadow .18s, transform .18s;
 }
 
-.woooo-logo span {
-  margin-left: 2px;
-  color: #a7773f;
-  font: 700 7px/1 "Space Mono", monospace;
-  letter-spacing: .56em;
-}
+.gradient-tool svg { width: 20px; height: 20px; overflow: visible; }
+.gradient-tool path { fill: none; stroke: currentColor; stroke-width: 1; stroke-linecap: round; opacity: .72; }
+.gradient-tool:hover { color: #f1c978; border-color: #a9763b; }
+.gradient-tool:active { transform: scale(.94); }
+.gradient-tool.active { color: #ffe0a0; border-color: #e0a34d; background: #4a2911; box-shadow: 0 0 0 3px #e4a94b18, 0 0 18px #dfa3413b; }
+.gradient-tool:focus-visible { outline: 2px solid #f1c267; outline-offset: 2px; }
 
 .fps-meter {
   margin-left: auto;
@@ -95,10 +103,11 @@ button, input { font: inherit; }
 .quick-controls {
   position: absolute;
   z-index: 10;
-  top: 18px;
-  right: 18px;
-  width: 272px;
-  padding: 13px 14px 10px;
+  left: 50%;
+  bottom: 18px;
+  width: min(590px, calc(100% - 170px));
+  padding: 8px 12px 6px;
+  transform: translateX(-50%);
   border: 1px solid #9c693da6;
   border-radius: 3px;
   color: #e4c89c;
@@ -107,52 +116,40 @@ button, input { font: inherit; }
   backdrop-filter: blur(12px);
 }
 
-.quick-controls-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: #a77a49; font-size: 7px; letter-spacing: .22em; }
+.quick-controls-head { display: none; }
 .quick-controls-head i { height: 1px; flex: 1; background: linear-gradient(90deg, #8d5e32, transparent); }
-.quick-controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; }
+.quick-controls-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 14px; }
 
-.control { display: grid; grid-template-columns: 1fr auto; gap: 6px; min-width: 0; padding: 5px 0; color: #c6aa82; font-size: 9px; }
+.control { display: grid; grid-template-columns: 1fr auto; gap: 4px; min-width: 0; padding: 0; color: #c6aa82; font-size: 8px; }
 .control output { color: #edc777; }
-.control input { grid-column: 1 / -1; width: 100%; height: 18px; margin: 0; accent-color: #d3a34d; cursor: pointer; }
-.control input:focus-visible, .part-blur-popover input:focus-visible { outline: 2px solid #ffd07a; outline-offset: 2px; }
+.control input { grid-column: 1 / -1; width: 100%; height: 15px; margin: 0; accent-color: #d3a34d; cursor: pointer; }
+.control input:focus-visible { outline: 2px solid #ffd07a; outline-offset: 2px; }
 
-.part-blur-popover {
+.gradient-mode-hint {
   position: absolute;
   z-index: 20;
   left: 50%;
-  top: 55%;
-  width: min(236px, calc(100% - 24px));
-  padding: 12px 13px 10px;
+  top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
   transform: translateX(-50%);
-  border: 1px solid #d29a51;
-  border-radius: 3px;
-  color: #efd8ad;
-  background: #1b0d07ed;
-  box-shadow: 0 10px 35px #2b0f0685, 0 0 22px #e9aa4429;
-  backdrop-filter: blur(12px);
+  border: 1px solid #9c7040a8;
+  border-radius: 20px;
+  color: #b89870;
+  background: #1b0d07db;
+  box-shadow: 0 8px 28px #2b0f065c;
+  backdrop-filter: blur(9px);
+  font-size: 8px;
   animation: popover-in .16s ease-out both;
+  pointer-events: none;
 }
 
-.part-blur-popover::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: -5px;
-  width: 8px;
-  height: 8px;
-  transform: translateX(-50%) rotate(45deg);
-  border-left: 1px solid #d29a51;
-  border-top: 1px solid #d29a51;
-  background: #1b0d07;
-}
-
-.part-popover-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.part-popover-head > span { display: grid; gap: 3px; }
-.part-popover-head small { color: #8f6b47; font-size: 6px; letter-spacing: .2em; }
-.part-popover-head strong { color: #f0d5a2; font: 600 12px/1.2 "Noto Serif SC", serif; letter-spacing: .06em; }
-.part-popover-head output { color: #f1be62; font-size: 10px; }
-.part-blur-popover > label { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 10px; margin-top: 8px; color: #a98e6d; font-size: 8px; }
-.part-blur-popover input { width: 100%; height: 22px; margin: 0; accent-color: #e2a846; cursor: pointer; }
+.gradient-mode-hint i { width: 9px; height: 9px; border: 1px solid #d2b27f; border-radius: 50%; }
+.gradient-mode-hint .black { background: #090705; }
+.gradient-mode-hint .white { background: #fff8e9; box-shadow: 0 0 9px #fff2cc8a; }
+.gradient-mode-hint strong { margin: 0 4px; color: #eed29f; font: 600 9px/1 "Noto Serif SC", serif; letter-spacing: .08em; }
 
 .stage-caption { position: absolute; z-index: 4; left: 28px; bottom: 25px; display: grid; gap: 5px; color: #4b2e17; pointer-events: none; }
 .stage-caption span { font-size: 9px; letter-spacing: .18em; }
@@ -169,33 +166,34 @@ button, input { font: inherit; }
   .app-shell, .stage-panel { height: 100dvh; }
   .stage-panel { grid-template-rows: 68px minmax(0, 1fr); }
   .topbar { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
-  .woooo-logo { min-width: 112px; }
-  .woooo-logo strong { font-size: 21px; }
+  .woooo-logo { height: 46px; }
   .fps-meter { min-width: 79px; grid-template-columns: 31px 22px 1fr; }
   .fps-meter output { font-size: 18px; }
   .live-pill { display: none; }
-  .control input, .part-blur-popover input { min-height: 28px; }
+  .control input { min-height: 24px; }
 }
 
 @media (max-width: 620px) {
-  .quick-controls { top: 10px; right: 10px; left: 10px; width: auto; padding: 10px 12px 7px; }
-  .quick-controls-head { margin-bottom: 3px; }
-  .quick-controls-grid { gap: 0 14px; }
-  .control { padding: 2px 0; }
-  .stage-caption { left: 18px; bottom: max(18px, env(safe-area-inset-bottom)); }
-  .stage-caption span { font-size: 8px; }
-  .stage-caption strong { max-width: 220px; font-size: 11px; line-height: 1.45; }
-  .bottom-right { right: 18px; bottom: max(18px, env(safe-area-inset-bottom)); }
+  .quick-controls {
+    bottom: max(9px, env(safe-area-inset-bottom));
+    width: calc(100% - 20px);
+    padding: 7px 9px 5px;
+  }
+  .quick-controls-grid { gap: 0 9px; }
+  .control { font-size: 7px; }
+  .control output { font-size: 7px; }
+  .gradient-mode-hint { top: 11px; padding: 7px 9px; }
+  .stage-caption, .bottom-right { display: none; }
   .stage-wrap::after { inset: 9px; }
 }
 
 @media (max-width: 360px) {
-  .woooo-logo { min-width: 96px; }
-  .woooo-logo strong { font-size: 18px; }
+  .woooo-logo { height: 42px; }
+  .gradient-tool { width: 34px; height: 34px; }
   .fps-meter { min-width: 68px; grid-template-columns: 28px 18px 1fr; }
   .fps-meter output { font-size: 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .fps-meter b, .live-pill span, .part-blur-popover { animation-duration: .01ms; }
+  .fps-meter b, .live-pill span, .gradient-mode-hint { animation-duration: .01ms; }
 }
