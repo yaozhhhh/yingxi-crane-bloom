@@ -252,7 +252,12 @@ export async function createPixiStage(host, config, callbacks = {}) {
   scene.addChild(curtain, light, shadowLayer, bloomLayer, puppetLayer, selectionFrame, vignette);
   app.stage.addChild(scene);
 
-  curtain.eventMode = 'none';
+  curtain.eventMode = 'static';
+  curtain.cursor = 'default';
+  curtain.on('pointertap', () => {
+    config.selectedPartId = null;
+    callbacks.onPartClear?.();
+  });
   light.eventMode = 'none';
   shadowLayer.eventMode = 'none';
   bloomLayer.eventMode = 'none';
@@ -425,6 +430,10 @@ export async function createPixiStage(host, config, callbacks = {}) {
         bounds.maxY - bounds.minY + pad * 2,
         6,
       ).stroke({ color: 0xe5ad56, width: 1.4, alpha: 0.9 });
+      callbacks.onPartAnchor?.({
+        x: Math.min(app.screen.width - 130, Math.max(130, (bounds.minX + bounds.maxX) / 2)),
+        y: Math.min(app.screen.height - 88, Math.max(12, bounds.maxY + 12)),
+      });
     }
 
     frameCount += 1;
